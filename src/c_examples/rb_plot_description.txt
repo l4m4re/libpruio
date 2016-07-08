@@ -1,0 +1,407 @@
+                             
+Source: http://analog-photonics.com/BBB/libpruio.html 
+
+ADC auf dem Beaglebone Black mit PRU
+
+
+Vorbemerkungen:
+
+   Der Beaglebone Black (BBB) hat als als zentrales Rechenwert (CPU,
+central processing unit) ein System auf einem Chip (SoC, system on
+chip). Dieser SoC wird von der Firma Texas Instruments (TI) hergestellt.
+TI unterstützt die beagleboard.org Gemeinschaft.  Der SoC von TI hat die
+Chip-Bezeichnung AM335x, wobei x die Ziffer 8 oder 9 haben kann, je nach
+Platinentyp (Board). Der Hauptprozessor des BBB basiert auf einer ARMv7
+Architektur auf dem das Linux Betriebssystem läuft. Der ARMv7 Kern
+taktet mit 900 MHz. Der SoC hat aber auch noch zwei weitere Prozessoren
+die als programmierbare Echtzeit Einheiten (PRU, programmable realtime
+unit) bezeichnet werden und mit 200 MHz takten. Mein Board   hat
+übrigens die Bezeichnung "BCB Rec B6". Als Betriebssystem verwende ich
+Debian, das ich als fertiges Image aufgespielt habe
+(BBB-eMMC-flasher-debian-7.8-lxde-4gb-armhf-2015-03-01-4gb. img).
+
+   Der BBB hat gegenüber anderen Einplatinencomputern, wie z.B. dem
+bekannten Raspberry Pi, den Vorteil, dass er über bis zu 8 analoge
+Eingänge (ADC, analog/digital converter) verfügt. Die ADC - Eingänge
+lassen sich einfach ansprechen, wenn das Betriebssystem über sogenannte
+device trees erweitert wird. Alle Hardware Aktionen benötigen root
+Rechte. Daher empfiehlt es sich die folgenden Befehle und Programme als
+root auf der Kommandozeile auszuführen mit dem Befehl:
+
+
+   sudo su
+
+
+   Die Aktivierung der analogen Eingänge AIN-0 bis AIN-7 erfolgt dann mit dem Befehl:
+
+
+   echo BB-ADC > /sys/devices/bone_capemgr.*/slots
+
+
+   Es empfiehlt sich jetzt die Datei slots mal anzusehen. Hier sollte am
+Ende der entsprechende Eintrag zu finden sein.
+
+   Jetzt kann man ganz einfach auf der Kommandozeile einen analogen
+Eingang, z.B AIN-0 abfragen. Dazu liest man die neu angelegte virtuelle
+Datei des Analogeingangs aus.  Das geschieht mit dem Befehl:
+
+
+   cat /sys/bus/iio/devices/iio::device0/in_voltage0_raw
+
+
+   Es wird daraufhin ein zufälliger Werte zwischen 0 und 4096 angezeigt,
+denn der BBB ADC hat eine12- bit Auflösung. Dabei entspricht 0 einer
+gemessenen Spannung von 0 Volt und 4096 einer Spannung von 1,8 Volt.
+
+   Bis jetzt haben wir noch nichts an den BBB angeschlossen. Das ist
+auch gut so, denn hier muss man sehr vorsichtig sein, um den BBB nicht
+nachhaltig zu beschädigen, denn Spannungen an den Analog-Eingängen die
+außerhalb des Bereichs 0 bis 1,8 Volt liegen, können Schäden am SoC
+anrichten. Die verwendbaren PINs für analog Schaltungen sind alle auf
+der P9 Buchsenleiste des  BBB zu finden und sind auszugsweise in der
+folgenden Liste  aufgeführt:
+
+                  ____
+   digital GNG 01 |OO|   02 digtital GND
+   DC 3,3 Volt 03 |OO|   04 DC 3,3 Volt
+   VDD 5 Volt  05 |OO|   06 VDD 5 Volt
+                  .
+                  .
+                  .
+               31 |OO|   32 VADC 1,8 Volt
+    AIN-4      33 |OO|   34 analog GND
+    AIN-6      35 |OO|   36 AIN-5
+    AIN-2      37 |OO|   38 AIN-3
+    AIN-0      39 |OO|   40 AIN-1
+               41 |OO|   42
+   digital GND 43 |OO|   44 digital GND
+   digital GND 45 |OO|   46 digital GND
+                  ------
+
+   Zum Test der Analogeingänge schaltet man am einfachsten ein 10 k
+Potentiometer (Poti) (oder 100 k, so genau kommt es nicht drauf an)
+zwischen AGND und VADC, und den Mittelabgriff des Potis auf AIN-0 oder
+einen entsprechenden Analogeingang.
+
+
+ADC mit PRU:
+
+   Will man sich schnell verändernde Signal an den Analogeingängen
+ansehen, kommt man mit dieser Methode nicht weiter, da sie zu langsam
+ist. Hier ist der Einsatz der PRUs gefragt, die unabhängig vom
+Betriebssystem die ADC-Werte in Echtzeit in den Speicher einlesen
+können. Von dort können sie dann von einem Programm ausgelesen werden.
+Das Programmieren der PRUs ist eine Sache für sich und eigentlich nicht
+ganz einfach, gäbe es nicht eine gute C-Bibliothek von Thomas Freiherr,
+die wir nutzen werden. Um die PRUs zu verwenden, muss zunächst das
+original PRU Treiber Paket auf den BBB mit dem Befehl:
+
+
+   apt-get install am335x-pru-package
+
+
+geladen werden. Die Aktivierung des PRU- Pakets erfolgt ebenfalls auf
+der Kommandozeile mit dem Befehl:
+
+
+   echo BB-BONE-PRU-01 >       /sys/devices/bone_capemgr.*/slots
+
+
+   Die Programmierung der PRUs  wurde uns in dankenswerter Weise von
+Thomas Freiherr abgenommen, der uns die Bibliothek libpruio in der
+gegenwärtigen Version 2.0  auf der Plattform:
+
+
+   https://www.freebasic-portal.de/downloads/fb-on-arm/
+
+
+   unter der LGPLv2 Lizenz ( http://www.gnu.org/licenses/lgpl-2.0.html)
+zur Verfügung stellt. Leider ist die Beschreibung von libpruio etwas
+kryptisch und auch nicht in erster Linie für C-Programme gedacht.
+
+   Lädt man jetzt die komprimierte Datei libpruio-2.0.tar.bz2 herunter
+und dekomprimiert sie, findet man unter .../libpruio-0.2/scr/c_wrapper
+die Bibliothek libprio.so und die dazugehörige Header-Datei pruio.h
+sowie pruio.hp . Mit dem Shell-Skrip install.sh , dass sich ebenfalls im
+c_wrapper Verzeichnis befindet,   werden diese Datei nach
+/usr/local/lib/ bzw. /usr/local/include/ kopiert, root Rechte natürlich
+immer noch vorausgesetzt (siehe oben). Will man in seinem C-Programm die
+Bibliothek nutzen, muss man beim Kompilieren des C-Programms die
+Bibliothek explizit mit angeben. Das Beispiel, dass uns Thomas Freiherr
+unter:
+
+
+    ..../libpruio-0.2/scr/c_examples/1.c
+
+   zur Verfügung stellt, wird mit:
+
+
+   gcc -Wall -o 1 1.c -lpruio
+
+
+   kompiliert. Der Befehl gcc ruft den C- Compiler auf. Die Option -Wall
+w eist den Compiler an, alle auftretenden Warnungen an zuzeigen. Das ist
+für die ehleranalyse ganz nützlich. Die Option -o weist den C ompiler
+an, de n nachfolgende n Name als Programmname n   zu verwenden. In
+diesem Fall  soll das Programm einfach nur 1 heißen. Man kann die Option
+-o auch weglassen, dann wird der Standardname (default) a.out verwendet.
+Nachfolgend wird die zu kompilierende Quelldatei angegeben (hier 1.c).
+An dem c hinter dem Punkt des Quelldateinamens erkennt der gcc, dass ein
+C-Programm übersetzt werden soll. Das die Bibliothek libpruio.so
+eingebunden werden soll erkennt der gcc an -lpruio. Das "lib" am
+Namensanfang der Bibliothek und das ".so" am Ende werden nicht
+angegeben, dafür wird ein "-l" vorangestellt (zugegeben eine etwas
+dämliche Konvention). Der Quellcode des  Programms 1.c sei hier einmal
+vollständig wiedergegeben.
+
+
+   [1.png]
+
+
+  Zeile 20:
+
+   Hier wird die Headerdatei pruio.h geladen, die das Interface zur Nutzung der
+   Bibliothek libpruio.so benötigt.
+
+
+  Zeile 26:
+
+   Durch pruio.h ist die Struktur pruIo bekannt auf die der Zeiger *io
+zeigt. Dieser zeigt auf die Initialisierung der PRU. Die Parameter der
+Funktion:
+
+
+   pruio_new(uint16 Act, uint8 Av, uint32 OpD, uint8 SaD)
+
+
+   werden hier im einzelnen beschrieben:
+
+
+    unit16 Act:
+
+   Act ist eine 16bit-Maske und aktiviert die Subsysteme der PRUs. Das
+enum PRUIO_DEF_ACTIVE hat den Hex-Wert 0xFFFF  oder Binär
+b111111111111111 und aktiviert alle Subsysteme. In diesem Fall ist das
+eigentlich nicht notwendig, da wir nur den ADC verwenden. Es würde auch
+ausreichen hier einfach das enum PRUIO_ACT_ADC (= 1<<1) zu verwenden um
+die Benutzung der ADC durch die PRU-0 zu aktivieren.
+
+
+    unit8 Av:
+
+   Av gibt an, über wie viele Schritte gemittelt werden soll. Steht hier
+ein hoher Wert, z.B. 0xFF, wird die Messung sehr genau, dafür aber
+langsam.
+
+
+    unit32 OpD:
+
+   OpD gibt an, wie lange es braucht, bis die erste Messung erfolgen
+soll. Hier sind Werte zwischen 0 und 0x3FFFF erlaubt. Ist der Wert zu
+hoch, liest das C-Programm bereits den Speicherplatz aus, bevor die
+Messung durch den PRU gestartet ist. Dann stehen im Speicher die
+Initialisierungs-Nullen. Der vorgeschlagene Wert ist 0x98.
+
+
+    Unit8 SaD:
+
+   SaD gibt die Wartezeit für die Messschritte an. Werte zwischen 0 und
+255 sind erlaubt. Der Vorschlag ist 0.
+
+
+  Zeile 27:
+
+   Hier wird die Funktion:
+
+
+   char* pruio_config(pruIo* Io, uint32 Samp, uint32 Mask,  uint32 Tmr, uint16 Mds)
+
+
+   aufgerufen und im Fehlerfall eine Meldung ausgegeben.
+
+
+    pruIo* Io:
+
+   Hier wird einfach der Zeiger auf die Funktion pruio_new() auf Zeile 26 übergeben.
+
+
+    unit32 Samp:
+
+   Samp gibt die Anzahl der Messwerte an, die in den Speicher geladen
+werden sollen. In dem Programm 1.c soll einfach nur eine Messung pro
+Kanal durchgeführt werden, daher steht hier eine 1. Maximal können 2^32
+= 65535 Messungen durchgeführt werden.
+
+
+    unit32 Mask:
+
+   Mask gibt die 32bit-Maske der aktivierten ADC Kanäle vor. Die im
+Beispiel eingegebene Maske 0x1FE entspricht dem Bitmuster b1 1111 1110.
+Es werden also alle 8 ADC Kanäle ausgelesen. Die Bedeutung der rechten 0
+ist mir unklar.
+
+
+    unit32 Tmr:
+
+   Dieser Timer definiert die Sampling-Rate, also die Zeit, die zwischen
+zwei ADC-Messungen bleibt. Der Wert wird in Nanosekunden (ns) angegeben.
+
+
+    uint16 Mds:
+
+   Mds gibt den Ausgabemodus an. Es gibt den Modus RB (Ring Buffer) und MM
+
+
+
+  Zeile 32:
+
+   In dieser for Schleife werden 13 mal alle ADC Werte eingelesen.
+
+
+  Zeile 33:
+
+   In dieser for Schleife werden die 8 ADC Werte von AIN-0 bis AIN-7
+eingelesen.
+
+
+  Zeile 34:
+
+   Die Werte im Speicher werden mit io->ADC->Value[i] ausgelesen und auf
+der Konsole im 4-stelligen HEX-Format angezeigt.
+
+
+  Zeile 40:
+
+   Mit der Funktion pruio_destroy() wird die PRU wieder deaktiviert.
+
+
+Ring Buffer nutzen:
+
+   Das Programm 1.c ist schon erheblich schneller, als das Auslesen der
+ADCs über die virtuellen Dateien    .../in_voltage0_raw . Es geht aber
+natürlich noch schneller.  Dazu habe ich das folgende C-Programm
+rb_plot.c geschrieben. Das Programm liest nur noch den AIN-0 ein und
+zeigt das Ergebnis grafisch in GnuPlot an. Wer noch kein GnuPlot hat,
+sollte dies mit dem Befehl:
+
+
+   apt-get install gnuplot
+
+
+   nachholen. Die Messwerte werden zunächst in dem Array  array[ ]
+gespeichert (Zeile 55) und in die Text-Datei output.dat (Zeile56)
+geschrieben. An GnuPlot werden die Messwerte über eine Pipe übergeben.
+Siehe hierzu die Zeilen 62, 63 und 64. Der Parameter -persistent in der
+Funktion popen() ermöglicht es die GnuPlot Grafik auch nach Programmende
+zu sehen.
+
+   Die meisten anderen Programmzeilen sind selbsterklärend oder bereits
+in 1.c behandelt. Daher gehe ich hier nur noch auf wenige Zeilen ein.
+Hier nun der Quellcode des Programms rb_plot.c :
+
+
+
+
+
+   [rb_plot.png]
+
+
+
+  Zeile 44:
+
+   Hier wird die Funktion:
+
+
+   char* pruio_adc_setStep(pruIo* Io, uint8 Stp, uint8 ChN, uint8 Av,  uint8 SaD, uint32
+   OpD)
+
+
+   aufgerufen und im Fehlerfall eine Meldung ausgegeben.
+pruio_adc_setStep() überschreibt die Werte von pruio_new().
+
+
+    pruIo* Io:
+
+   Hier wird wieder der Zeiger auf die Funktion pruio_new()  übergeben.
+
+
+    unit8 Stp:
+
+   Stp ist der Schrittindex.
+
+   (0 = step 0 => charge step, 1 = step 1 (=> AIN0 by default),  ..., 17 = idle step)
+
+
+    unit8 ChN:
+
+   ChN ist die Kanalnummer.
+
+
+    unit8 Av:
+
+   Av gibt an, über wie viele Schritte gemittelt werden soll. Steht hier ein hoher Wert,
+   z.B. 0xFF, wird die Messung sehr genau, dafür aber langsam.
+
+
+    unit32 OpD:
+
+   OpD gibt an, wie lange es braucht, bis die erste Messung erfolgen
+soll. Hier sind Werte zwischen 0 und 0x3FFFF erlaubt. Ist der Wert zu
+hoch, liest das C-Programm bereits den Speicherplatz aus, bevor die
+Messung durch den PRU gestartet ist. Dann stehen im Speicher die
+Initialisierungs-Nullen. Der vorgeschlagene Wert ist 0x98.
+
+
+    unit8 SaD:
+
+   SaD gibt die Wartezeit für die Messschritte an. Werte zwischen 0 und
+255 sind erlaubt. Der Vorschlag ist 0.
+
+  Zeile 48:
+
+   Hier wird der Ring-Buffer gestartet
+
+
+  Zeile 50:
+
+   Der Pointer *p wird deklariert, der auf den Anfang des Ring-Buffers zeigt.
+
+
+  Zeile 52:
+
+   Die Textdatei output.dat wird geöffnet oder neu angelegt ("w+") in
+die die Messwerte gespeichert werden.
+
+
+  Zeile 54:
+
+   In der for-Schleife wird der Ring-Buffer gelesen und in das array[ ]
+geschrieben.
+
+
+  Zeile 55:
+
+   Dazu wird  der Pointer *p des Ring-Buffers über k hochgezählt.
+
+
+  Zeile 56:
+
+   Das array[ ] wird in die Text-Datei output.dat geschrieben
+
+
+   Mit diesem Programm ist es immerhin möglich eine anaolg-digital
+Wandlung von 100kS/s zu erreichen. Schneller hab ich es bisher nicht
+geschafft.
+
+
+
+
+   Der Quellcode des Programms rb_plot.c kann hier heruntergeladen werden.
+
+
+
+
+
+
+
+   Letztes Update 13.01.2016
