@@ -117,6 +117,29 @@ FUNCTION AdcUdt.configure CDECL( _
       END WITH
     NEXT
 
+/'*
+https://groups.google.com/forum/#!msg/beagleboard/CN5qKSmPIbc/2UdstwjNhHMJ
+
+So the limiting in the current libpruio-0.2 is too much on the safe
+site. If you don't want to wait for the next version, you can adapt the
+code by yourself (FreeBASIC compiler required). Replace in file
+pruio_adc.bas in function PruIo.configure(...) the lines
+
+      d *= (Conf->ADC_CLKDIV + 1) * 417 '417 = 1000000 / 2400 (= 1 GHz / 2.4 MHz)
+      d += 30 '                             PRU cycles for restart [GHz]
+      IF Tmr <= d THEN     .Errr = @"sample rate too big" : RETURN .Errr
+
+by the following code
+
+      d = (d * (Conf->ADC_CLKDIV + 1) * 1000) \ 24
+      IF Tmr <= d ORELSE Tmr < 5000 THEN _
+                           .Errr = @"sample rate too big" : RETURN .Errr
+
+You may play a bit with the absolute value 5000. On my BBB the timing is
+OK up to a frequency of 240 kHz (4165). But this may vary from board to
+board.
+'/
+
     IF Samp < 2 THEN ' IO mode
       Samples = 1
       TimerVal = 0
@@ -125,9 +148,9 @@ FUNCTION AdcUdt.configure CDECL( _
       Samples = Samp * ChAz
       IF (Samples SHL 1) > .ESize THEN _
                                  .Errr = @"out of memory" : RETURN .Errr
-      d *= (Conf->ADC_CLKDIV + 1) * 417 '417 ≈ 1000000 / 2400 (= 1 GHz / 2.4 MHz)
-      d += 30 '                             PRU cycles for restart [GHz]
-      IF Tmr <= d THEN     .Errr = @"sample rate too big" : RETURN .Errr
+      d = (d * (Conf->ADC_CLKDIV + 1) * 1000) \ 24
+      IF Tmr <= d ORELSE Tmr < 5000 THEN _
+                           .Errr = @"sample rate too big" : RETURN .Errr
       TimerVal = Tmr
       Value = .ERam
     END IF
